@@ -1,5 +1,4 @@
 #include <ros/ros.h>
-#include <tf/tf.h>
 #include <std_srvs/Empty.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <geometry_msgs/Twist.h>
@@ -8,12 +7,23 @@
 #include <move_base_msgs/MoveBaseAction.h>
 #include <actionlib/client/simple_action_client.h>
 
-typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
-std::queue<geometry_msgs::Point> points;
+using std_srvs::Empty;
+using geometry_msgs::Point;
+using move_base_msgs::MoveBaseGoal;
+using move_base_msgs::MoveBaseAction;
+using ros::Subscriber;
+using ros::NodeHandle;
+using ros::ServiceServer;
+using ros::Rate;
+using ros::Duration;
+
+typedef actionlib::SimpleActionClient<MoveBaseAction> MoveBaseClient;
+
+std::queue<Point> points;
 
 
-bool stop_callback(std_srvs::Empty::Request &req,
-                   std_srvs::Empty::Response &resp) {
+bool stop_callback(Empty::Request &req,
+                   Empty::Response &resp) {
     ROS_INFO("[!] Slave: Stopping...");
     ros::shutdown();
 
@@ -21,39 +31,32 @@ bool stop_callback(std_srvs::Empty::Request &req,
 }
 
 
-bool start_callback(std_srvs::Empty::Request &req,
-                    std_srvs::Empty::Response &resp) {
+bool start_callback(Empty::Request &req,
+                    Empty::Response &resp) {
     ROS_INFO("[*] Slave: Starting...");
     MoveBaseClient slave_client("move_base", true);
-    while(!slave_client.waitForServer(ros::Duration(5.0))){
+
+    while(!slave_client.waitForServer(Duration(5.0))){
         ROS_INFO("[*] Slave: Waiting for the move_base action server");
     }
 
     while (!points.empty()) {
-        geometry_msgs::Point point = points.front();
+        Point point = points.front();
         points.pop();
 
-        // TODO: send
-        // TODO: wait for result
-        // TODO: sleep 3 seconds
-
-        move_base_msgs::MoveBaseGoal goal;
+        MoveBaseGoal goal;
         goal.target_pose.header.frame_id = "map";
         goal.target_pose.header.stamp = ros::Time::now();
         goal.target_pose.pose.position = point;
-        // tf::Quaternion q(90, 0, 0);
-        // goal.target_pose.pose.orientation.x = (double)q.x();
-        // goal.target_pose.pose.orientation.y = (double)q.y();
-        // goal.target_pose.pose.orientation.z = (double)q.z();
-        // goal.target_pose.pose.orientation.w = (double)q.w();
+        // TODO: send proper orientation
+        // TODO: somehow convert Euler angle to quaternion to send
         goal.target_pose.pose.orientation.w = 1;
-        // goal.target_pose.pose.orientation.y = 0.707;
 
         ROS_INFO("[+] Slave: sending goal-point {%f, %f}", point.x, point.y);
         slave_client.sendGoal(goal);
         slave_client.waitForResult();
 
-        ros::Duration(3).sleep();
+        Duration(3).sleep();
     }
 
     ROS_INFO("[!] Slave: no more points");
@@ -62,23 +65,23 @@ bool start_callback(std_srvs::Empty::Request &req,
 }
 
 
-void point_callback(const geometry_msgs::Point::ConstPtr& point) {
+void point_callback(const Point::ConstPtr& point) {
     ROS_INFO("[+] Slave: pushing point");
     points.push(*point);
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ros::init(argc, argv, "slave_node");
-	ros::NodeHandle node_slave;
+	NodeHandle node_slave;
 
-    ros::ServiceServer service_stop = node_slave.advertiseService(
-        "slave/stop", stop_callback);
-    ros::ServiceServer service_start = node_slave.advertiseService(
-        "slave/start", start_callback);
-    ros::Subscriber sub = node_slave.subscribe(
-        "slave/point", 1000, point_callback);
-    ros::Rate rate(1);
+    ServiceServer service_stop =
+        node_slave.advertiseService("slave/stop", stop_callback);
+    ServiceServer service_start =
+        node_slave.advertiseService("slave/start", start_callback);
+    Subscriber sub =
+        node_slave.subscribe("slave/point", 1000, point_callback);
+    Rate rate(1);
     ROS_INFO("[+] Slave ready");
 
     while (ros::ok()) {
